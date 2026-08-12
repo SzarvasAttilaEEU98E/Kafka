@@ -78,20 +78,25 @@ class RedisStore:
         Visszatérés: "applied" vagy "duplicate". Érvénytelen állapotátmenetre
         InvalidTransitionError-t dob (a hívó dönt a DLQ-ról).
 
-        Sorrend: előbb validálunk, és csak utána foglaljuk le a dedup kulcsot
-        (SET NX) — így a DLQ-ba került esemény event_id-je szabad marad, és
-        egy későbbi DLQ-visszajátszás (redrive) újra feldolgozható. Ha a
-        worker a foglalás és az állapotírás között halna meg, az esemény
-        elveszhet — ez tudatos egyszerűsítés, az oktatási anyag tárgyalja,
-        hogyan lehetne szigorítani (Lua szkript, Kafka tranzakciók).
+        Sorrend: előbb ellenőrizzük, hogy az esemény már feldolgozott-e,
+        majd validálunk, és csak utána foglaljuk le a dedup kulcsot (SET NX).
+        Így a DLQ-ba került esemény event_id-je szabad marad, és egy későbbi
+        DLQ-visszajátszás (redrive) újra feldolgozható. Ha a worker a foglalás
+        és az állapotírás között halna meg, az esemény elveszhet — ez tudatos
+        egyszerűsítés, az oktatási anyag tárgyalja, hogyan lehetne szigorítani
+        (Lua szkript, Kafka tranzakciók).
         """
+        dedup_key = f"dedup:{event.event_id}"
+        if await self._redis.exists(dedup_key):
+            return "duplicate"
+
         parcel_key = f"parcel:{event.parcel_id}"
         current_raw = await self._redis.hget(parcel_key, "status")
         current = ParcelStatus(current_raw) if current_raw else None
         new_status = validate_transition(current, event.event_type)  # dobhat
 
         reserved = await self._redis.set(
-            f"dedup:{event.event_id}", "1", nx=True, ex=self._dedup_ttl
+            dedup_key, "1", nx=True, ex=self._dedup_ttl
         )
         if not reserved:
             return "duplicate"
