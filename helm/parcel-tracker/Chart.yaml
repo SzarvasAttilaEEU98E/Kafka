@@ -1,0 +1,15 @@
+apiVersion: v2
+name: parcel-tracker
+description: >-
+  Posta Csomagkövető — Kafka + Redis event-driven demó. Oktatási célú chart:
+  egy node-os KRaft Kafka, Redis, FastAPI producer API, consumer worker és
+  forgalom-szimulátor, Prometheus/Grafana integrációval.
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+keywords:
+  - kafka
+  - redis
+  - demo
+  - oktatas
+home: https://github.com/mattycska/Kafka

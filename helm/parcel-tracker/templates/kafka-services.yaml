@@ -1,0 +1,34 @@
+# Headless service: a StatefulSet podjainak stabil DNS nevet ad
+# (kafka-demo-kafka-0.kafka-demo-kafka-headless...). Ezt hirdeti a broker.
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "parcel-tracker.fullname" . }}-kafka-headless
+  labels:
+    app: {{ include "parcel-tracker.fullname" . }}-kafka
+    {{- include "parcel-tracker.labels" . | nindent 4 }}
+spec:
+  clusterIP: None
+  selector:
+    app: {{ include "parcel-tracker.fullname" . }}-kafka
+  ports:
+    - name: client
+      port: 9092
+    - name: controller
+      port: 9093
+---
+# Normál ClusterIP service: ezt használják a kliensek bootstrap címként.
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "parcel-tracker.fullname" . }}-kafka
+  labels:
+    app: {{ include "parcel-tracker.fullname" . }}-kafka
+    {{- include "parcel-tracker.labels" . | nindent 4 }}
+spec:
+  selector:
+    app: {{ include "parcel-tracker.fullname" . }}-kafka
+  ports:
+    - name: client
+      port: 9092
+      targetPort: client

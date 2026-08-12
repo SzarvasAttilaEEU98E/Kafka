@@ -1,0 +1,39 @@
+{{- if .Values.simulator.enabled }}
+# Forgalom-szimulátor: az API-n keresztül folyamatos, valósághű terhelést ad,
+# hogy a demó "magától éljen". Kikapcsolható: --set simulator.enabled=false
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "parcel-tracker.fullname" . }}-simulator
+  labels:
+    app: {{ include "parcel-tracker.fullname" . }}-simulator
+    {{- include "parcel-tracker.labels" . | nindent 4 }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: {{ include "parcel-tracker.fullname" . }}-simulator
+  template:
+    metadata:
+      labels:
+        app: {{ include "parcel-tracker.fullname" . }}-simulator
+    spec:
+      securityContext:
+        runAsNonRoot: true
+      containers:
+        - name: simulator
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args: ["parcel_tracker.simulator"]
+          env:
+            - name: API_BASE_URL
+              value: "http://{{ include "parcel-tracker.fullname" . }}-api"
+            - name: SIM_PARCELS_PER_MINUTE
+              value: {{ .Values.simulator.parcelsPerMinute | quote }}
+            - name: SIM_CHAOS_PERCENT
+              value: {{ .Values.simulator.chaosPercent | quote }}
+            - name: LOG_LEVEL
+              value: {{ .Values.logLevel | quote }}
+          resources:
+            {{- toYaml .Values.simulator.resources | nindent 12 }}
+{{- end }}

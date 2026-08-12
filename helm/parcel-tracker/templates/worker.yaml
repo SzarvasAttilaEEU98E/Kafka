@@ -1,0 +1,58 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "parcel-tracker.fullname" . }}-worker
+  labels:
+    app: {{ include "parcel-tracker.fullname" . }}-worker
+    {{- include "parcel-tracker.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.worker.replicas }}
+  selector:
+    matchLabels:
+      app: {{ include "parcel-tracker.fullname" . }}-worker
+  template:
+    metadata:
+      labels:
+        app: {{ include "parcel-tracker.fullname" . }}-worker
+    spec:
+      securityContext:
+        runAsNonRoot: true
+      # A SIGTERM után ennyi ideje van a workernek rendezetten leállni
+      # (batch befejezése + offset commit).
+      terminationGracePeriodSeconds: 30
+      containers:
+        - name: worker
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args: ["parcel_tracker.worker"]
+          ports:
+            - name: metrics
+              containerPort: 8001
+          envFrom:
+            - configMapRef:
+                name: {{ include "parcel-tracker.fullname" . }}-config
+          livenessProbe:
+            httpGet:
+              path: /metrics
+              port: metrics
+            initialDelaySeconds: 10
+            periodSeconds: 15
+          resources:
+            {{- toYaml .Values.worker.resources | nindent 12 }}
+---
+# A worker nem szolgál ki forgalmat, de a Prometheusnak kell egy Service,
+# amin keresztül a ServiceMonitor megtalálja a /metrics endpointot.
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "parcel-tracker.fullname" . }}-worker
+  labels:
+    app: {{ include "parcel-tracker.fullname" . }}-worker
+    {{- include "parcel-tracker.labels" . | nindent 4 }}
+spec:
+  selector:
+    app: {{ include "parcel-tracker.fullname" . }}-worker
+  ports:
+    - name: metrics
+      port: 8001
+      targetPort: metrics

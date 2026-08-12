@@ -1,0 +1,114 @@
+# ============================================================================
+# Posta Csomagkövető — Helm values
+#
+# Ez a fájl a chart "állítható gombjai". A GitOps folyamatban a CI minden
+# main-re került commit után frissíti az image.tag értéket (lásd
+# .github/workflows/ci.yml) — az ArgoCD ebből tudja, hogy új verziót kell
+# kitennie. A tag sor formátumát ezért NE változtasd meg!
+# ============================================================================
+
+image:
+  repository: ghcr.io/mattycska/kafka-demo
+  tag: "latest"
+  pullPolicy: IfNotPresent
+
+logLevel: INFO
+
+# ---------------------------------------------------------------- API (web)
+api:
+  replicas: 2
+  resources:
+    requests:
+      cpu: 50m
+      memory: 96Mi
+    limits:
+      memory: 256Mi
+
+# ------------------------------------------------------------------- Worker
+worker:
+  # 2 replika + 6 partíció → skálázható 6 workerig; a rebalance a logokban
+  # követhető: kubectl -n kafka-demo logs -l app=kafka-demo-worker -f
+  replicas: 2
+  resources:
+    requests:
+      cpu: 50m
+      memory: 96Mi
+    limits:
+      memory: 256Mi
+
+# --------------------------------------------------------------- Szimulátor
+simulator:
+  enabled: true
+  parcelsPerMinute: 10
+  chaosPercent: 3  # ennyi %-ban küld sorrendtörő eseményt (DLQ demó)
+  resources:
+    requests:
+      cpu: 20m
+      memory: 64Mi
+    limits:
+      memory: 128Mi
+
+# -------------------------------------------------------------------- Kafka
+# Egy node-os KRaft (ZooKeeper nélküli) Kafka — demóhoz elég, éleshez NEM:
+# ott 3+ broker, replication factor 3 és operator (pl. Strimzi) való.
+kafka:
+  image: apache/kafka:3.9.1
+  # Fix cluster id, hogy a PVC-n lévő adat broker-újraindítás után is
+  # konzisztens maradjon (base64-elt UUID formátum).
+  clusterId: "VpFV0gOfQIyz052RAgB_0w"
+  heapOpts: "-Xmx512m -Xms256m"
+  storage:
+    size: 5Gi
+    className: local-path  # k3s beépített provisioner
+  resources:
+    requests:
+      cpu: 100m
+      memory: 640Mi
+    limits:
+      memory: 1280Mi
+  topic:
+    name: parcel.events
+    partitions: 6
+    replicationFactor: 1
+  dlqTopic:
+    name: parcel.events.dlq
+    partitions: 1
+    replicationFactor: 1
+  consumerGroup: parcel-worker
+
+# -------------------------------------------------------------------- Redis
+# Szándékosan perzisztencia nélkül: a Redis itt materializált nézet, a
+# forrás igazsága a Kafka — a nézet eseményvisszajátszással újraépíthető.
+redis:
+  image: redis:7.4-alpine
+  # noeviction + TTL-ezett csomagkulcsok: a limit elérése írási hibát adna,
+  # ezért bőven méretezzük (a demó-adat 3 nap után magától lejár).
+  maxMemory: 256mb
+  resources:
+    requests:
+      cpu: 20m
+      memory: 64Mi
+    limits:
+      memory: 192Mi
+
+# ------------------------------------------------------------------ Ingress
+ingress:
+  enabled: true
+  className: nginx
+  host: kafka-demo.mattlab.hu
+  labHost: kafka-demo.lab.local  # belső hálózaton, TLS nélkül
+  tls:
+    enabled: true
+    clusterIssuer: letsencrypt-prod
+    secretName: kafka-demo-tls
+
+# --------------------------------------------------------------- Monitoring
+monitoring:
+  serviceMonitor:
+    enabled: true
+    # A kube-prometheus-stack csak az ezzel a labellel ellátott
+    # ServiceMonitorokat veszi fel.
+    releaseLabel: kube-prometheus-stack
+    interval: 15s
+  grafanaDashboard:
+    enabled: true

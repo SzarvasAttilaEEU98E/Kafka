@@ -1,0 +1,16 @@
+# Az alkalmazás közös konfigurációja. A podok envFrom-mal húzzák be —
+# konfigváltozás után a Deployment-eket újra kell indítani (vagy checksum
+# annotációt használni; ez itt tudatosan egyszerű maradt).
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "parcel-tracker.fullname" . }}-config
+  labels:
+    {{- include "parcel-tracker.labels" . | nindent 4 }}
+data:
+  KAFKA_BOOTSTRAP_SERVERS: {{ include "parcel-tracker.kafkaBootstrap" . | quote }}
+  KAFKA_TOPIC: {{ .Values.kafka.topic.name | quote }}
+  KAFKA_DLQ_TOPIC: {{ .Values.kafka.dlqTopic.name | quote }}
+  KAFKA_CONSUMER_GROUP: {{ .Values.kafka.consumerGroup | quote }}
+  REDIS_URL: "redis://{{ include "parcel-tracker.fullname" . }}-redis:6379/0"
+  LOG_LEVEL: {{ .Values.logLevel | quote }}

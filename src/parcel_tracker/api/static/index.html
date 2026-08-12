@@ -1,0 +1,325 @@
+<!DOCTYPE html>
+<html lang="hu">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Posta Csomagkövető — Kafka + Redis demó</title>
+<style>
+  :root {
+    --green: #00854d;
+    --green-dark: #006a3d;
+    --bg: #f4f6f5;
+    --card: #ffffff;
+    --text: #1e2823;
+    --muted: #66736c;
+    --border: #e1e7e3;
+    --red: #c0392b;
+    --amber: #b9770e;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+  }
+  header {
+    background: linear-gradient(135deg, var(--green-dark), var(--green));
+    color: #fff;
+    padding: 20px 28px;
+    display: flex;
+    align-items: baseline;
+    gap: 14px;
+    flex-wrap: wrap;
+  }
+  header h1 { margin: 0; font-size: 22px; font-weight: 700; }
+  header .sub { opacity: .85; font-size: 13px; }
+  main { max-width: 1180px; margin: 0 auto; padding: 22px 18px 60px; }
+  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 14px; }
+  .card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 16px 18px;
+  }
+  .card .label { font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+  .card .value { font-size: 30px; font-weight: 700; margin-top: 4px; }
+  .card .value.dlq { color: var(--red); }
+  .grid { display: grid; grid-template-columns: 1.4fr 1fr; gap: 14px; margin-top: 14px; }
+  @media (max-width: 900px) { .grid { grid-template-columns: 1fr; } }
+  .panel {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 16px 18px;
+  }
+  .panel h2 { margin: 0 0 10px; font-size: 15px; }
+  .panel h2 .hint { font-weight: 400; color: var(--muted); font-size: 12px; }
+  #feed { list-style: none; margin: 0; padding: 0; max-height: 420px; overflow-y: auto; }
+  #feed li {
+    display: flex;
+    gap: 10px;
+    align-items: baseline;
+    padding: 7px 4px;
+    border-bottom: 1px solid var(--border);
+    font-size: 13px;
+    animation: fadein .4s ease;
+  }
+  @keyframes fadein { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; } }
+  #feed .time { color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+  #feed .id { font-family: ui-monospace, Menlo, monospace; font-size: 12px; cursor: pointer; color: var(--green-dark); }
+  .badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 999px;
+    font-size: 11px;
+    font-weight: 600;
+    background: #e7f3ed;
+    color: var(--green-dark);
+    white-space: nowrap;
+  }
+  .badge.KEZBESITVE { background: var(--green); color: #fff; }
+  .badge.SIKERTELEN_KEZBESITES { background: #fdeaea; color: var(--red); }
+  .badge.VISSZAKULDVE { background: #f4e8d5; color: var(--amber); }
+  .centers li { display: flex; justify-content: space-between; padding: 6px 4px; border-bottom: 1px solid var(--border); font-size: 13px; }
+  .centers { list-style: none; margin: 0; padding: 0; }
+  .centers .bar { height: 6px; background: var(--green); border-radius: 3px; margin-top: 4px; }
+  form { display: flex; gap: 8px; flex-wrap: wrap; }
+  input, select, button {
+    font: inherit;
+    padding: 9px 12px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+  }
+  input:focus { outline: 2px solid var(--green); border-color: transparent; }
+  button {
+    background: var(--green);
+    color: #fff;
+    border: none;
+    cursor: pointer;
+    font-weight: 600;
+  }
+  button:hover { background: var(--green-dark); }
+  .result { margin-top: 10px; font-size: 13px; }
+  .timeline { list-style: none; margin: 10px 0 0; padding: 0; }
+  .timeline li { padding: 6px 0 6px 18px; border-left: 2px solid var(--green); margin-left: 6px; position: relative; font-size: 13px; }
+  .timeline li::before {
+    content: "";
+    position: absolute;
+    left: -6px;
+    top: 11px;
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: var(--green);
+  }
+  .muted { color: var(--muted); }
+  .statusline { margin-top: 12px; display: flex; gap: 8px; flex-wrap: wrap; }
+  footer { text-align: center; color: var(--muted); font-size: 12px; margin-top: 26px; }
+  code { background: #eef2ef; padding: 1px 5px; border-radius: 4px; font-size: 12px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>📦 Posta Csomagkövető</h1>
+  <span class="sub">Kafka + Redis event-driven demó &middot; HTTP → Kafka → worker → Redis → dashboard</span>
+</header>
+<main>
+  <div class="cards">
+    <div class="card"><div class="label">Összes csomag</div><div class="value" id="stat-total">–</div></div>
+    <div class="card"><div class="label">Aktív csomag</div><div class="value" id="stat-active">–</div></div>
+    <div class="card"><div class="label">Ma kézbesítve</div><div class="value" id="stat-delivered">–</div></div>
+    <div class="card"><div class="label">DLQ üzenetek</div><div class="value dlq" id="stat-dlq">–</div></div>
+    <div class="card"><div class="label">Statisztika cache</div><div class="value" id="stat-cache" style="font-size:20px">–</div></div>
+  </div>
+
+  <div class="grid">
+    <div class="panel">
+      <h2>Élő eseményfolyam <span class="hint">— SSE a Redis Pub/Sub-ból</span></h2>
+      <ul id="feed"><li class="muted">Kapcsolódás…</li></ul>
+    </div>
+    <div>
+      <div class="panel">
+        <h2>Feldolgozó központok <span class="hint">— Redis ZSET toplista</span></h2>
+        <ul class="centers" id="centers"><li class="muted">Betöltés…</li></ul>
+      </div>
+      <div class="panel" style="margin-top:14px">
+        <h2>Státusz-megoszlás</h2>
+        <div class="statusline" id="statuses"><span class="muted">Betöltés…</span></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="grid">
+    <div class="panel">
+      <h2>Csomagkeresés</h2>
+      <form id="search-form">
+        <input id="search-input" placeholder="pl. PT0123456789HU" style="flex:1;min-width:220px"
+               pattern="PT[0-9]{10}HU" title="Formátum: PT + 10 számjegy + HU" required>
+        <button type="submit">Keresés</button>
+      </form>
+      <div class="result" id="search-result"></div>
+    </div>
+    <div class="panel">
+      <h2>Csomag feladása <span class="hint">— POST /api/parcels → 202 Accepted</span></h2>
+      <form id="create-form">
+        <select id="create-dest">
+          <option>Budapest</option><option>Debrecen</option><option>Szeged</option>
+          <option>Miskolc</option><option>Pécs</option><option>Győr</option>
+          <option>Nyíregyháza</option><option>Kecskemét</option><option>Albertirsa</option>
+        </select>
+        <input id="create-weight" type="number" min="1" max="31500" value="1250" style="width:110px" title="Súly (g)">
+        <button type="submit">Feladás</button>
+      </form>
+      <div class="result" id="create-result"></div>
+    </div>
+  </div>
+
+  <footer>
+    Oktatási demó a Posta DevOps csapatának &middot; forrás: <code>github.com/mattycska/Kafka</code>
+    &middot; API dokumentáció: <a href="/docs">/docs</a>
+  </footer>
+</main>
+
+<script>
+  const feed = document.getElementById("feed");
+  let feedEmpty = true;
+
+  function fmtTime(iso) {
+    try { return new Date(iso).toLocaleTimeString("hu-HU"); } catch { return iso; }
+  }
+
+  function addFeedItem(evt) {
+    if (feedEmpty) { feed.innerHTML = ""; feedEmpty = false; }
+    const li = document.createElement("li");
+    const time = document.createElement("span");
+    time.className = "time";
+    time.textContent = fmtTime(evt.occurred_at);
+    const badge = document.createElement("span");
+    badge.className = "badge " + evt.status;
+    badge.textContent = evt.event_type;
+    const id = document.createElement("span");
+    id.className = "id";
+    id.textContent = evt.parcel_id;
+    id.title = "Kattints a kereséshez";
+    id.onclick = () => { document.getElementById("search-input").value = evt.parcel_id; lookup(evt.parcel_id); };
+    const loc = document.createElement("span");
+    loc.className = "muted";
+    loc.textContent = evt.location || "";
+    li.append(time, badge, id, loc);
+    feed.prepend(li);
+    while (feed.children.length > 60) feed.removeChild(feed.lastChild);
+  }
+
+  function connectSSE() {
+    const source = new EventSource("/api/live");
+    source.onmessage = (message) => {
+      try { addFeedItem(JSON.parse(message.data)); } catch {}
+    };
+    source.onerror = () => { /* az EventSource magától újracsatlakozik */ };
+  }
+
+  async function refreshStats() {
+    try {
+      const response = await fetch("/api/stats/overview");
+      if (!response.ok) return;
+      const data = await response.json();
+      document.getElementById("stat-total").textContent = data.parcels_total;
+      document.getElementById("stat-active").textContent = data.active_parcels;
+      document.getElementById("stat-delivered").textContent = data.delivered_today;
+      document.getElementById("stat-dlq").textContent = data.dlq_total;
+      document.getElementById("stat-cache").textContent = data.cache === "hit" ? "HIT ⚡" : "MISS 🔄";
+
+      const centers = document.getElementById("centers");
+      centers.innerHTML = "";
+      const max = Math.max(1, ...(data.top_centers || []).map(c => c.events));
+      (data.top_centers || []).forEach(center => {
+        const li = document.createElement("li");
+        const left = document.createElement("div");
+        left.style.flex = "1";
+        left.textContent = center.name;
+        const bar = document.createElement("div");
+        bar.className = "bar";
+        bar.style.width = Math.max(4, 100 * center.events / max) + "%";
+        left.appendChild(bar);
+        const count = document.createElement("span");
+        count.className = "muted";
+        count.textContent = center.events;
+        li.append(left, count);
+        centers.appendChild(li);
+      });
+      if (!data.top_centers || !data.top_centers.length) {
+        centers.innerHTML = '<li class="muted">Még nincs adat</li>';
+      }
+
+      const statuses = document.getElementById("statuses");
+      statuses.innerHTML = "";
+      Object.entries(data.status_counts || {}).forEach(([status, count]) => {
+        const badge = document.createElement("span");
+        badge.className = "badge " + status;
+        badge.textContent = status + ": " + count;
+        statuses.appendChild(badge);
+      });
+      if (!Object.keys(data.status_counts || {}).length) {
+        statuses.innerHTML = '<span class="muted">Még nincs adat</span>';
+      }
+    } catch {}
+  }
+
+  async function lookup(parcelId) {
+    const box = document.getElementById("search-result");
+    box.innerHTML = '<span class="muted">Keresés…</span>';
+    try {
+      const response = await fetch("/api/parcels/" + encodeURIComponent(parcelId));
+      if (response.status === 404) {
+        box.innerHTML = '<span class="muted">Nincs ilyen csomag (vagy még feldolgozás alatt).</span>';
+        return;
+      }
+      if (!response.ok) throw new Error(response.status);
+      const data = await response.json();
+      const parcel = data.parcel;
+      let html = `<strong>${parcel.parcel_id}</strong> — <span class="badge ${parcel.status}">${parcel.status}</span>`;
+      html += `<div class="muted" style="margin-top:4px">Cél: ${parcel.destination || "?"} · Súly: ${parcel.weight_g || "?"} g · Feladó: ${parcel.sender || "?"}</div>`;
+      html += '<ul class="timeline">';
+      (data.history || []).slice().reverse().forEach(event => {
+        html += `<li><strong>${event.event_type}</strong> <span class="muted">· ${event.location || ""} · ${fmtTime(event.occurred_at)}</span></li>`;
+      });
+      html += "</ul>";
+      box.innerHTML = html;
+    } catch {
+      box.innerHTML = '<span class="muted">Hiba a lekérdezéskor.</span>';
+    }
+  }
+
+  document.getElementById("search-form").addEventListener("submit", (submitEvent) => {
+    submitEvent.preventDefault();
+    lookup(document.getElementById("search-input").value.trim());
+  });
+
+  document.getElementById("create-form").addEventListener("submit", async (submitEvent) => {
+    submitEvent.preventDefault();
+    const box = document.getElementById("create-result");
+    try {
+      const response = await fetch("/api/parcels", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          destination: document.getElementById("create-dest").value,
+          weight_g: parseInt(document.getElementById("create-weight").value, 10),
+          sender: "Dashboard felhasználó",
+        }),
+      });
+      if (!response.ok) throw new Error(response.status);
+      const data = await response.json();
+      box.innerHTML = `✅ Feladva: <strong>${data.parcel_id}</strong> <span class="muted">(202 Accepted — figyeld az élő folyamban!)</span>`;
+    } catch {
+      box.innerHTML = '<span class="muted">Hiba a feladáskor.</span>';
+    }
+  });
+
+  connectSSE();
+  refreshStats();
+  setInterval(refreshStats, 5000);
+</script>
+</body>
+</html>

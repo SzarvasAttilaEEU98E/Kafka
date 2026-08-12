@@ -1,0 +1,61 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "parcel-tracker.fullname" . }}-api
+  labels:
+    app: {{ include "parcel-tracker.fullname" . }}-api
+    {{- include "parcel-tracker.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.api.replicas }}
+  selector:
+    matchLabels:
+      app: {{ include "parcel-tracker.fullname" . }}-api
+  template:
+    metadata:
+      labels:
+        app: {{ include "parcel-tracker.fullname" . }}-api
+    spec:
+      securityContext:
+        runAsNonRoot: true
+      containers:
+        - name: api
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          # Az ENTRYPOINT "python -m", az args választja ki a szerepet.
+          args: ["parcel_tracker.api"]
+          ports:
+            - name: http
+              containerPort: 8000
+          envFrom:
+            - configMapRef:
+                name: {{ include "parcel-tracker.fullname" . }}-config
+          # Liveness: él-e a processz? Readiness: kaphat-e forgalmat?
+          # (A readyz a Redis-kapcsolatot is ellenőrzi.)
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 15
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          resources:
+            {{- toYaml .Values.api.resources | nindent 12 }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "parcel-tracker.fullname" . }}-api
+  labels:
+    app: {{ include "parcel-tracker.fullname" . }}-api
+    {{- include "parcel-tracker.labels" . | nindent 4 }}
+spec:
+  selector:
+    app: {{ include "parcel-tracker.fullname" . }}-api
+  ports:
+    - name: http
+      port: 80
+      targetPort: http

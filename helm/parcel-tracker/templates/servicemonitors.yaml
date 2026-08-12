@@ -1,0 +1,42 @@
+{{- if .Values.monitoring.serviceMonitor.enabled }}
+# A kube-prometheus-stack Prometheusa a "release" label alapján válogatja
+# ki, mely ServiceMonitorokat kaparja — a label nélkül némán nem történik
+# semmi (klasszikus hibakeresési feladat, tananyag!).
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ include "parcel-tracker.fullname" . }}-api
+  labels:
+    release: {{ .Values.monitoring.serviceMonitor.releaseLabel }}
+    {{- include "parcel-tracker.labels" . | nindent 4 }}
+spec:
+  selector:
+    matchLabels:
+      app: {{ include "parcel-tracker.fullname" . }}-api
+  namespaceSelector:
+    matchNames:
+      - {{ .Release.Namespace }}
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: {{ .Values.monitoring.serviceMonitor.interval }}
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ include "parcel-tracker.fullname" . }}-worker
+  labels:
+    release: {{ .Values.monitoring.serviceMonitor.releaseLabel }}
+    {{- include "parcel-tracker.labels" . | nindent 4 }}
+spec:
+  selector:
+    matchLabels:
+      app: {{ include "parcel-tracker.fullname" . }}-worker
+  namespaceSelector:
+    matchNames:
+      - {{ .Release.Namespace }}
+  endpoints:
+    - port: metrics
+      path: /metrics
+      interval: {{ .Values.monitoring.serviceMonitor.interval }}
+{{- end }}

@@ -1,0 +1,91 @@
+# Egy node-os Kafka KRaft módban (nincs ZooKeeper): a broker és a controller
+# szerep ugyanabban a processzben fut. StatefulSet kell, mert a Kafka-nak
+# stabil hálózati név (advertised listener!) és stabil tároló kell.
+#
+# ÉLESBEN: 3+ broker, replication factor 3, és operator (pl. Strimzi) —
+# ez a chart tudatosan a legkisebb tanulható felállás.
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "parcel-tracker.fullname" . }}-kafka
+  labels:
+    app: {{ include "parcel-tracker.fullname" . }}-kafka
+    {{- include "parcel-tracker.labels" . | nindent 4 }}
+spec:
+  serviceName: {{ include "parcel-tracker.fullname" . }}-kafka-headless
+  replicas: 1
+  selector:
+    matchLabels:
+      app: {{ include "parcel-tracker.fullname" . }}-kafka
+  template:
+    metadata:
+      labels:
+        app: {{ include "parcel-tracker.fullname" . }}-kafka
+    spec:
+      containers:
+        - name: kafka
+          image: {{ .Values.kafka.image }}
+          ports:
+            - name: client
+              containerPort: 9092
+            - name: controller
+              containerPort: 9093
+          env:
+            - name: CLUSTER_ID
+              value: {{ .Values.kafka.clusterId | quote }}
+            - name: KAFKA_NODE_ID
+              value: "0"
+            - name: KAFKA_PROCESS_ROLES
+              value: "broker,controller"
+            - name: KAFKA_CONTROLLER_QUORUM_VOTERS
+              value: "0@{{ include "parcel-tracker.kafkaPodFqdn" . }}:9093"
+            - name: KAFKA_LISTENERS
+              value: "PLAINTEXT://:9092,CONTROLLER://:9093"
+            # A kliens ezt a címet kapja vissza a bootstrap után — a headless
+            # service-en keresztül a pod stabil DNS nevére mutat.
+            - name: KAFKA_ADVERTISED_LISTENERS
+              value: "PLAINTEXT://{{ include "parcel-tracker.kafkaPodFqdn" . }}:9092"
+            - name: KAFKA_LISTENER_SECURITY_PROTOCOL_MAP
+              value: "PLAINTEXT:PLAINTEXT,CONTROLLER:PLAINTEXT"
+            - name: KAFKA_CONTROLLER_LISTENER_NAMES
+              value: "CONTROLLER"
+            - name: KAFKA_INTER_BROKER_LISTENER_NAME
+              value: "PLAINTEXT"
+            - name: KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR
+              value: "1"
+            - name: KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR
+              value: "1"
+            - name: KAFKA_TRANSACTION_STATE_LOG_MIN_ISR
+              value: "1"
+            - name: KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS
+              value: "0"
+            - name: KAFKA_AUTO_CREATE_TOPICS_ENABLE
+              value: "false"
+            - name: KAFKA_LOG_DIRS
+              value: "/var/lib/kafka/data"
+            - name: KAFKA_HEAP_OPTS
+              value: {{ .Values.kafka.heapOpts | quote }}
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/kafka/data
+          readinessProbe:
+            tcpSocket:
+              port: client
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket:
+              port: client
+            initialDelaySeconds: 30
+            periodSeconds: 15
+          resources:
+            {{- toYaml .Values.kafka.resources | nindent 12 }}
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        storageClassName: {{ .Values.kafka.storage.className }}
+        resources:
+          requests:
+            storage: {{ .Values.kafka.storage.size }}

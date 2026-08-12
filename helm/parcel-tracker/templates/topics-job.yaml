@@ -1,0 +1,48 @@
+# Helm hook: a topicokat explicit hozzuk létre (auto-create kikapcsolva),
+# mert a partíciószám tudatos döntés — ez szabja meg a consumer group
+# maximális párhuzamosságát.
+#
+# ArgoCD alatt a helm.sh/hook automatikusan PostSync hookká fordul:
+# a Job a sync után fut le, és sikeres befejezés után törlődik.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "parcel-tracker.fullname" . }}-topics
+  labels:
+    {{- include "parcel-tracker.labels" . | nindent 4 }}
+  annotations:
+    helm.sh/hook: post-install,post-upgrade
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: 30
+  template:
+    metadata:
+      labels:
+        app: {{ include "parcel-tracker.fullname" . }}-topics
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: create-topics
+          image: {{ .Values.kafka.image }}
+          command:
+            - /bin/bash
+            - -ec
+            - |
+              BOOTSTRAP="{{ include "parcel-tracker.kafkaBootstrap" . }}"
+              /opt/kafka/bin/kafka-topics.sh --bootstrap-server "$BOOTSTRAP" \
+                --create --if-not-exists \
+                --topic {{ .Values.kafka.topic.name }} \
+                --partitions {{ .Values.kafka.topic.partitions }} \
+                --replication-factor {{ .Values.kafka.topic.replicationFactor }}
+              /opt/kafka/bin/kafka-topics.sh --bootstrap-server "$BOOTSTRAP" \
+                --create --if-not-exists \
+                --topic {{ .Values.kafka.dlqTopic.name }} \
+                --partitions {{ .Values.kafka.dlqTopic.partitions }} \
+                --replication-factor {{ .Values.kafka.dlqTopic.replicationFactor }}
+              echo "Topicok rendben."
+          resources:
+            requests:
+              cpu: 50m
+              memory: 256Mi
+            limits:
+              memory: 512Mi

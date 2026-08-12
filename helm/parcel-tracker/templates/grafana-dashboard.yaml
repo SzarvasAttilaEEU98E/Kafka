@@ -1,0 +1,104 @@
+{{- if .Values.monitoring.grafanaDashboard.enabled }}
+# A Grafana sidecar a grafana_dashboard: "1" labelű ConfigMapokból tölti be
+# a dashboardokat — deploy után magától megjelenik a Grafanában.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "parcel-tracker.fullname" . }}-dashboard
+  labels:
+    grafana_dashboard: "1"
+    {{- include "parcel-tracker.labels" . | nindent 4 }}
+data:
+  kafka-demo-dashboard.json: |-
+    {
+      "annotations": {"list": []},
+      "editable": true,
+      "graphTooltip": 1,
+      "title": "Kafka Demo — Posta Csomagkövető",
+      "uid": "kafka-demo",
+      "tags": ["kafka", "redis", "demo", "posta"],
+      "timezone": "browser",
+      "schemaVersion": 39,
+      "version": 1,
+      "refresh": "30s",
+      "time": {"from": "now-1h", "to": "now"},
+      "panels": [
+        {
+          "id": 1, "type": "stat", "title": "Összes csomag",
+          "gridPos": {"h": 5, "w": 4, "x": 0, "y": 0},
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "targets": [{"expr": "max(parcels_total)", "refId": "A"}]
+        },
+        {
+          "id": 2, "type": "stat", "title": "DLQ üzenetek",
+          "gridPos": {"h": 5, "w": 4, "x": 4, "y": 0},
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "targets": [{"expr": "sum(parcel_dlq_total)", "refId": "A"}],
+          "fieldConfig": {"defaults": {"thresholds": {"steps": [
+            {"color": "green", "value": null},
+            {"color": "orange", "value": 1},
+            {"color": "red", "value": 20}
+          ]}}, "overrides": []}
+        },
+        {
+          "id": 3, "type": "stat", "title": "Futó workerek",
+          "gridPos": {"h": 5, "w": 4, "x": 8, "y": 0},
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "targets": [{"expr": "sum(worker_ready)", "refId": "A"}]
+        },
+        {
+          "id": 4, "type": "bargauge", "title": "Csomagok státusz szerint",
+          "gridPos": {"h": 5, "w": 12, "x": 12, "y": 0},
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "options": {"orientation": "horizontal", "displayMode": "gradient", "reduceOptions": {"calcs": ["lastNotNull"]}},
+          "targets": [{"expr": "max by (status) (parcel_status_count)", "legendFormat": "{{ printf "{{status}}" }}", "refId": "A"}]
+        },
+        {
+          "id": 5, "type": "timeseries", "title": "Termelt események (esemény/mp)",
+          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 5},
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "targets": [{"expr": "sum by (event_type) (rate(parcel_events_produced_total[$__rate_interval]))", "legendFormat": "{{ printf "{{event_type}}" }}", "refId": "A"}]
+        },
+        {
+          "id": 6, "type": "timeseries", "title": "Feldolgozott események eredmény szerint",
+          "description": "applied = sikeres, duplicate = idempotencia szűrte, dlq = dead letter queue",
+          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 5},
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "targets": [{"expr": "sum by (result) (rate(parcel_events_consumed_total[$__rate_interval]))", "legendFormat": "{{ printf "{{result}}" }}", "refId": "A"}]
+        },
+        {
+          "id": 7, "type": "timeseries", "title": "Esemény-feldolgozás p95 (worker)",
+          "gridPos": {"h": 8, "w": 8, "x": 0, "y": 13},
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "fieldConfig": {"defaults": {"unit": "s"}, "overrides": []},
+          "targets": [{"expr": "histogram_quantile(0.95, sum by (le) (rate(parcel_event_processing_seconds_bucket[$__rate_interval])))", "legendFormat": "p95", "refId": "A"}]
+        },
+        {
+          "id": 8, "type": "timeseries", "title": "API kérések (kérés/mp)",
+          "gridPos": {"h": 8, "w": 8, "x": 8, "y": 13},
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "targets": [{"expr": "sum by (path) (rate(http_requests_total[$__rate_interval]))", "legendFormat": "{{ printf "{{path}}" }}", "refId": "A"}]
+        },
+        {
+          "id": 9, "type": "timeseries", "title": "API válaszidő p95",
+          "gridPos": {"h": 8, "w": 8, "x": 16, "y": 13},
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "fieldConfig": {"defaults": {"unit": "s"}, "overrides": []},
+          "targets": [{"expr": "histogram_quantile(0.95, sum by (le) (rate(http_request_duration_seconds_bucket[$__rate_interval])))", "legendFormat": "p95", "refId": "A"}]
+        },
+        {
+          "id": 10, "type": "timeseries", "title": "DLQ ok szerint (üzenet/mp)",
+          "gridPos": {"h": 7, "w": 12, "x": 0, "y": 21},
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "targets": [{"expr": "sum by (reason) (rate(parcel_dlq_total[$__rate_interval]))", "legendFormat": "{{ printf "{{reason}}" }}", "refId": "A"}]
+        },
+        {
+          "id": 11, "type": "timeseries", "title": "Pod memória (namespace)",
+          "gridPos": {"h": 7, "w": 12, "x": 12, "y": 21},
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "fieldConfig": {"defaults": {"unit": "bytes"}, "overrides": []},
+          "targets": [{"expr": "sum by (pod) (container_memory_working_set_bytes{namespace=\"{{ .Release.Namespace }}\", container!=\"\"})", "legendFormat": "{{ printf "{{pod}}" }}", "refId": "A"}]
+        }
+      ]
+    }
+{{- end }}
