@@ -8,7 +8,7 @@
 # ============================================================================
 
 image:
-  repository: ghcr.io/szarvasattilaeeu98e/kafka-demo
+  repository: ghcr.io/szarvasattilaeeu98e/kafka
   tag: "sha-767eaf4"
   pullPolicy: IfNotPresent
 
