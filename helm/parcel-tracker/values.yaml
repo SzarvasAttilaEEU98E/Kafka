@@ -8,7 +8,7 @@
 # ============================================================================
 
 image:
-  repository: ghcr.io/mattycska/kafka-demo
+  repository: ghcr.io/szarvasattilaeeu98e/kafka-demo
   tag: "sha-767eaf4"
   pullPolicy: IfNotPresent
 
@@ -95,12 +95,12 @@ redis:
 ingress:
   enabled: true
   className: nginx
-  host: kafka-demo.mattlab.hu
-  labHost: kafka-demo.lab.local  # belső hálózaton, TLS nélkül
+  host: kafka-demo-attila.mattlab.hu
+  labHost: kafka-demo-attila.lab.local  # belső hálózaton, TLS nélkül
   tls:
     enabled: true
     clusterIssuer: letsencrypt-prod
-    secretName: kafka-demo-tls
+    secretName: kafka-demo-attila-tls
 
 # --------------------------------------------------------------- Monitoring
 monitoring:
